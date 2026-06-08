@@ -1,0 +1,306 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-agents
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-opencode-instructions
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-opencode
+data:
+  AGENTS.md: |
+    # sample-opencode
+
+    Use the selected skills from .opencode/skills. Load a skill's SKILL.md before
+    applying that skill to a task.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-opencode-config
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-opencode
+data:
+  opencode.json: |
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "instructions": ["AGENTS.md"],
+      "mcp": {}
+    }
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-opencode-env
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-opencode
+type: Opaque
+stringData:
+  OPENAI_API_KEY: replace-me
+
+---
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: Sandbox
+metadata:
+  name: sample-opencode
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-opencode
+spec:
+  service: true
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-opencode
+    spec:
+      runtimeClassName: kata
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: prepare-profile-paths
+        image: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          mkdir -p /sandbox/workspace/.opencode/skills
+          chown -R 1000:1000 /sandbox/workspace
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        volumeMounts:
+        - name: workspace
+          mountPath: /sandbox/workspace
+      containers:
+      - name: opencode
+        image: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+        imagePullPolicy: IfNotPresent
+        workingDir: /sandbox/workspace
+        # Layout inspection only. A real deployment would start OpenCode here.
+        command:
+        - sh
+        - -c
+        - "find /sandbox/workspace -maxdepth 4 -print && exec sleep infinity"
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sample-opencode-env
+              key: OPENAI_API_KEY
+        ports:
+        - name: http
+          containerPort: 8080
+        volumeMounts:
+        - name: workspace
+          mountPath: /sandbox/workspace
+        - name: opencode-instructions
+          mountPath: /sandbox/workspace/AGENTS.md
+          subPath: AGENTS.md
+          readOnly: true
+        - name: opencode-config
+          mountPath: /sandbox/workspace/opencode.json
+          subPath: opencode.json
+          readOnly: true
+        - name: skill1
+          mountPath: /sandbox/workspace/.opencode/skills/skill1
+          subPath: skills/skill1
+          readOnly: true
+        - name: skill2
+          mountPath: /sandbox/workspace/.opencode/skills/skill2
+          subPath: skills/skill2
+          readOnly: true
+        - name: skill3
+          mountPath: /sandbox/workspace/.opencode/skills/skill3
+          subPath: skills/skill3
+          readOnly: true
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: opencode-instructions
+        configMap:
+          name: sample-opencode-instructions
+          items:
+          - key: AGENTS.md
+            path: AGENTS.md
+      - name: opencode-config
+        configMap:
+          name: sample-opencode-config
+          items:
+          - key: opencode.json
+            path: opencode.json
+      - name: skill1
+        image:
+          reference: ghcr.io/example/skills/skill1:v1
+          pullPolicy: IfNotPresent
+      - name: skill2
+        image:
+          reference: ghcr.io/example/skills/skill2:v1
+          pullPolicy: IfNotPresent
+      - name: skill3
+        image:
+          reference: ghcr.io/example/skills/skill3:v1
+          pullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-codex-instructions
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-codex
+data:
+  AGENTS.md: |
+    # sample-codex
+
+    Selected skills are available under .agents/skills. Inspect the relevant
+    SKILL.md file before using a skill.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-codex-config
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-codex
+data:
+  config.toml: |
+    [mcp_servers.openaiDeveloperDocs]
+    url = "https://developers.openai.com/mcp"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sample-codex-env
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-codex
+type: Opaque
+stringData:
+  OPENAI_API_KEY: replace-me
+
+---
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: Sandbox
+metadata:
+  name: sample-codex
+  namespace: sample-agents
+  labels:
+    app.kubernetes.io/name: sample-codex
+spec:
+  service: true
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-codex
+    spec:
+      runtimeClassName: kata
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: prepare-profile-paths
+        image: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          mkdir -p /sandbox/workspace/.agents/skills /sandbox/.codex
+          chown -R 1000:1000 /sandbox/workspace /sandbox/.codex
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        volumeMounts:
+        - name: workspace
+          mountPath: /sandbox/workspace
+        - name: codex-home
+          mountPath: /sandbox/.codex
+      containers:
+      - name: codex
+        image: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+        imagePullPolicy: IfNotPresent
+        workingDir: /sandbox/workspace
+        # Layout inspection only. A real deployment would start Codex here.
+        command:
+        - sh
+        - -c
+        - "find /sandbox/workspace /sandbox/.codex -maxdepth 4 -print && exec sleep infinity"
+        env:
+        - name: CODEX_HOME
+          value: /sandbox/.codex
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sample-codex-env
+              key: OPENAI_API_KEY
+        ports:
+        - name: http
+          containerPort: 8080
+        volumeMounts:
+        - name: workspace
+          mountPath: /sandbox/workspace
+        - name: codex-home
+          mountPath: /sandbox/.codex
+        - name: codex-instructions
+          mountPath: /sandbox/workspace/AGENTS.md
+          subPath: AGENTS.md
+          readOnly: true
+        - name: codex-config
+          mountPath: /sandbox/.codex/config.toml
+          subPath: config.toml
+          readOnly: true
+        - name: skill1
+          mountPath: /sandbox/workspace/.agents/skills/skill1
+          subPath: skills/skill1
+          readOnly: true
+        - name: skill2
+          mountPath: /sandbox/workspace/.agents/skills/skill2
+          subPath: skills/skill2
+          readOnly: true
+        - name: skill3
+          mountPath: /sandbox/workspace/.agents/skills/skill3
+          subPath: skills/skill3
+          readOnly: true
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: codex-home
+        emptyDir: {}
+      - name: codex-instructions
+        configMap:
+          name: sample-codex-instructions
+          items:
+          - key: AGENTS.md
+            path: AGENTS.md
+      - name: codex-config
+        configMap:
+          name: sample-codex-config
+          items:
+          - key: config.toml
+            path: config.toml
+      - name: skill1
+        image:
+          reference: ghcr.io/example/skills/skill1:v1
+          pullPolicy: IfNotPresent
+      - name: skill2
+        image:
+          reference: ghcr.io/example/skills/skill2:v1
+          pullPolicy: IfNotPresent
+      - name: skill3
+        image:
+          reference: ghcr.io/example/skills/skill3:v1
+          pullPolicy: IfNotPresent
